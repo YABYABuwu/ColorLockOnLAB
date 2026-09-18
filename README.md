@@ -44,7 +44,7 @@ Mask สีใช้ `Morphological Close` และ `Open` ด้วย Kernel 
 
 ## ความต้องการ
 
-- Python 3.9 ขึ้นไป
+- Python 3.8 ขึ้นไป
 - RoboMaster EP
 - คอมพิวเตอร์ที่เชื่อมต่อ Wi-Fi ของ RoboMaster EP ในโหมด AP
 - กล้องและ Gimbal ของ RoboMaster ทำงานตามปกติ
