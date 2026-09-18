@@ -1,7 +1,7 @@
 """ยิงตามลำดับ: วงกลมแดง -> สี่เหลี่ยมเขียว -> สี่เหลี่ยมเหลือง
 
 รัน: .venv/bin/python Color_Shape_Sequence.py
-ยิงอินฟราเรดเป้าละหนึ่งครั้ง ครบสามเป้าแล้วจบ กด Ctrl+C เพื่อหยุด
+ยิงกระสุนเจลเป้าละหนึ่งนัด ครบสามเป้าแล้วจบ กด Ctrl+C เพื่อหยุด
 เป้าที่กำลังตามต้องอยู่ในภาพกล้อง ถ้าไม่พบจะหยุดรอ ไม่กวาดค้นหา
 """
 
@@ -10,7 +10,7 @@ import time
 
 import cv2
 import numpy as np
-from robomaster import robot
+from robomaster import blaster, robot
 
 # ใช้การตรวจวงกลมสีแดงที่ปรับจนใช้งานได้แล้ว
 from Red_Target_Simple import (
@@ -21,16 +21,88 @@ from Red_Target_Simple import (
 # ช่วงสี HSV ของ OpenCV: H = 0-179, S/V = 0-255
 COLOR_RANGES = {
     "yellow": ((20, 100, 70), (35, 255, 255)),
-    # รับเขียวอมเหลือง/เขียวซีด/เขียวมืดเพิ่ม โดยไม่ทับช่วง Hue สีเหลือง
-    "green": ((140, 45, 40), (150, 255, 255)),
+    # รับเป้าเขียวที่มืด แต่ใช้ Saturation สูงเพื่อไม่รับสีขาว/สีเทา
+    "green": ((36, 80, 20), (95, 255, 255)),
 }
 TARGETS = [
     ("วงกลมสีแดง", "red"),
     ("สี่เหลี่ยมสีเขียว", "green"),
     ("สี่เหลี่ยมสีเหลือง", "yellow"),
 ]
-FIRE_TYPE = "ir"          # ยิงอินฟราเรด
+FIRE_TYPE = blaster.WATER_FIRE  # กระสุนเจล/Water gel bead ใน RoboMaster SDK
 SHOT_PAUSE = 1.0          # เว้นระยะก่อนเริ่มเล็งเป้าถัดไป (วินาที)
+ERROR_SMOOTHING_ALPHA = 0.25  # ค่าน้อยจะนุ่มขึ้น แต่ตอบสนองช้าลง
+MAX_ACCELERATION = 120.0       # จำกัดการเปลี่ยนความเร็ว (องศา/วินาที²)
+SETTLE_SPEED = 0.75            # ต้องเกือบหยุดนิ่งจึงเริ่มนับ Lock
+LOST_TARGET_GRACE_FRAMES = 8   # ผ่อนความเร็วระหว่างรอพบเป้ากลับมา
+AIM_HEIGHT_RATIO = 0.35        # เล็ง 35% จากขอบบนทั้ง Infrared และกระสุนเจล
+RED_AIM_X_OFFSET_RATIO = -0.045 # ชดเชยเป้าแดงไปซ้าย 4.5% ของความกว้างเป้า
+
+
+class SmoothGimbalController:
+    """กรอง Error และจำกัดความเร่งเพื่อลดการกระตุกของ Gimbal."""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.filtered_x = None
+        self.filtered_y = None
+        self.yaw_speed = 0.0
+        self.pitch_speed = 0.0
+        self.last_update = None
+
+    @staticmethod
+    def _move_towards(current, target, max_change):
+        change = max(-max_change, min(max_change, target - current))
+        return current + change
+
+    def update(self, error_x, error_y, now=None):
+        now = time.perf_counter() if now is None else now
+        if self.last_update is None:
+            delta_time = 1.0 / 30.0
+        else:
+            # จำกัดช่วงเวลาเพื่อไม่ให้เร่งกระทันหันหลังกล้องสะดุด
+            delta_time = max(1.0 / 120.0, min(0.1, now - self.last_update))
+        self.last_update = now
+
+        if self.filtered_x is None:
+            self.filtered_x, self.filtered_y = error_x, error_y
+        else:
+            alpha = ERROR_SMOOTHING_ALPHA
+            self.filtered_x += alpha * (error_x - self.filtered_x)
+            self.filtered_y += alpha * (error_y - self.filtered_y)
+
+        target_yaw = max(-MAX_SPEED, min(MAX_SPEED, KP * self.filtered_x))
+        target_pitch = max(-MAX_SPEED, min(MAX_SPEED, KP * self.filtered_y))
+        max_change = MAX_ACCELERATION * delta_time
+        self.yaw_speed = self._move_towards(
+            self.yaw_speed, target_yaw, max_change
+        )
+        self.pitch_speed = self._move_towards(
+            self.pitch_speed, target_pitch, max_change
+        )
+        return self.yaw_speed, self.pitch_speed
+
+    def slow_down(self, now=None):
+        """ลดความเร็วเข้าศูนย์โดยตรง แต่เก็บตำแหน่งกรองไว้รอ Reacquire."""
+        now = time.perf_counter() if now is None else now
+        if self.last_update is None:
+            delta_time = 1.0 / 30.0
+        else:
+            delta_time = max(1.0 / 120.0, min(0.1, now - self.last_update))
+        self.last_update = now
+        max_change = MAX_ACCELERATION * delta_time
+        self.yaw_speed = self._move_towards(self.yaw_speed, 0.0, max_change)
+        self.pitch_speed = self._move_towards(
+            self.pitch_speed, 0.0, max_change
+        )
+        return self.yaw_speed, self.pitch_speed
+
+
+def is_target_centered(error_x, error_y):
+    """ตรวจว่าจุดกลางเป้าอยู่ในวงกลมรอบกากบาทกลางภาพ."""
+    return error_x ** 2 + error_y ** 2 <= DEAD_ZONE ** 2
 
 
 def find_rectangle(frame, color, debug=False):
@@ -76,9 +148,35 @@ def find_rectangle(frame, color, debug=False):
     return (center, mask, details) if debug else center
 
 
+def detect_target(frame, color, debug=False):
+    """Detector กลางที่ใช้ร่วมกันทั้ง Debug, GUI และโปรแกรมยิง."""
+    return (
+        find_red_target(frame, debug=debug)
+        if color == "red"
+        else find_rectangle(frame, color, debug=debug)
+    )
+
+
+def elevated_aim_point(center, details, color=None):
+    """คืนจุดเล็งช่วงบนของเป้า โดยยังอยู่ภายในกรอบเป้า."""
+    if center is None:
+        return None
+    passed = [detail for detail in details if not detail[5]]
+    if not passed:
+        return center
+    contour = max(passed, key=lambda item: item[1])[0]
+    _, top, width, height = cv2.boundingRect(contour)
+    aim_x = center[0]
+    if color == "red":
+        aim_x += RED_AIM_X_OFFSET_RATIO * width
+    return aim_x, top + AIM_HEIGHT_RATIO * height
+
+
 def aim_and_fire(ep, name, color):
     """รอเป้าปัจจุบันอยู่กลางภาพครบจำนวนเฟรม แล้วยิงครั้งเดียว"""
     locked_frames = 0
+    lost_frames = 0
+    controller = SmoothGimbalController()
     print(f"กำลังเล็ง: {name}")
     while True:
         try:
@@ -88,31 +186,43 @@ def aim_and_fire(ep, name, color):
 
         target = None
         if frame is not None:
-            target = (find_red_target(frame) if color == "red"
-                      else find_rectangle(frame, color))
+            detected_center, _, details = detect_target(frame, color, debug=True)
+            target = elevated_aim_point(detected_center, details, color)
 
         if target is None:
-            ep.gimbal.drive_speed(pitch_speed=0, yaw_speed=0)
             locked_frames = 0
+            lost_frames += 1
+            if lost_frames <= LOST_TARGET_GRACE_FRAMES:
+                # เป้าอาจหายชั่วคราวจาก Motion blur: ชะลอแทนการหยุดกระตุก
+                yaw, pitch = controller.slow_down()
+                ep.gimbal.drive_speed(pitch_speed=pitch, yaw_speed=yaw)
+            else:
+                ep.gimbal.drive_speed(pitch_speed=0, yaw_speed=0)
+                controller.reset()
             continue
 
+        lost_frames = 0
         height, width = frame.shape[:2]
         x, y = target
         error_x = x / width - 0.5
         error_y = 0.5 - y / height
 
-        if abs(error_x) < DEAD_ZONE and abs(error_y) < DEAD_ZONE:
-            ep.gimbal.drive_speed(pitch_speed=0, yaw_speed=0)
-            locked_frames += 1
+        if is_target_centered(error_x, error_y):
+            yaw, pitch = controller.slow_down()
+            ep.gimbal.drive_speed(pitch_speed=pitch, yaw_speed=yaw)
+            if abs(yaw) <= SETTLE_SPEED and abs(pitch) <= SETTLE_SPEED:
+                locked_frames += 1
+            else:
+                locked_frames = 0
             if locked_frames >= LOCK_FRAMES:
+                ep.gimbal.drive_speed(pitch_speed=0, yaw_speed=0)
                 if not ep.blaster.fire(fire_type=FIRE_TYPE, times=1):
                     raise RuntimeError(f"คำสั่งยิง {name} ไม่สำเร็จ หยุดลำดับ")
                 print(f"ยิงแล้ว: {name}")
                 return
         else:
             locked_frames = 0
-            yaw = max(-MAX_SPEED, min(MAX_SPEED, KP * error_x))
-            pitch = max(-MAX_SPEED, min(MAX_SPEED, KP * error_y))
+            yaw, pitch = controller.update(error_x, error_y)
             ep.gimbal.drive_speed(pitch_speed=pitch, yaw_speed=yaw)
 
 

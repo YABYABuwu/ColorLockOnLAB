@@ -13,12 +13,12 @@ from robomaster import blaster, robot
 
 # ค่าที่ปรับได้
 KP = 150                 # ยิ่งมาก ยิ่งหมุนตามเร็ว
-MAX_SPEED = 60            # จำกัดความเร็วหมุน (องศา/วินาที)
-DEAD_ZONE = 0.03          # ยอมให้คลาดจากกลางภาพ 3% ของแต่ละแกน
+MAX_SPEED = 40            # ลดความเร็วเพื่อลด Motion blur ขณะติดตามเป้า
+DEAD_ZONE = 0.015         # ต้องอยู่ในรัศมี 1.5% รอบกลางภาพก่อน Lock
 MIN_AREA = 800            # ไม่สนใจจุดสีแดงเล็กกว่า 800 พิกเซล
 MIN_CIRCULARITY = 0.70    # เผื่อขอบหยักจากกล้อง (ยังกรองจำนวนมุมร่วมด้วย)
 MIN_ASPECT_RATIO = 0.75   # เผื่อวงกลมที่เอียงเล็กน้อยจนดูรี
-LOCK_FRAMES = 5           # ต้องอยู่กลางภาพติดต่อกันก่อนยิง
+LOCK_FRAMES = 10          # ต้องอยู่กลางภาพติดต่อกันก่อนยิง
 
 
 def find_red_target(frame, debug=False):
@@ -108,12 +108,13 @@ def main():
             error_x = x / width - 0.5   # ขวาเป็นบวก
             error_y = 0.5 - y / height  # บนเป็นบวก
 
-            if abs(error_x) < DEAD_ZONE and abs(error_y) < DEAD_ZONE:
+            if error_x ** 2 + error_y ** 2 <= DEAD_ZONE ** 2:
                 ep.gimbal.drive_speed(pitch_speed=0, yaw_speed=0)
                 locked_frames += 1
                 if locked_frames >= LOCK_FRAMES:
                     success = ep.blaster.fire(
-                         times=1
+                        fire_type=blaster.WATER_FIRE,
+                        times=1,
                     )
                     print("ยิงแล้ว" if success else "คำสั่งยิงไม่สำเร็จ")
                     break

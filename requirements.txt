@@ -1,0 +1,4 @@
+robomaster
+opencv-python-headless
+numpy
+matplotlib

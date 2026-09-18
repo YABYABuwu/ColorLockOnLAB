@@ -1,79 +1,234 @@
 # ColorLockOnLAB
 
-สคริปต์ Python สำหรับ RoboMaster EP ที่ใช้กล้องตรวจจับเป้าตามสีและรูปร่าง จากนั้นเล็งกิมบอลให้อยู่กลางภาพและสั่งยิงอินฟราเรด
+ระบบตรวจจับเป้าสีและรูปร่างสำหรับ **RoboMaster EP** ด้วย Python และ OpenCV
+พร้อมควบคุม Gimbal ให้เล็งเป้าอัตโนมัติ ยิงได้ทั้ง Infrared และกระสุนเจล
+รวมถึงบันทึกข้อมูลการทดลองเป็น CSV, JSON และกราฟ
+
+> **คำเตือน:** โหมด `GEL BULLET` ยิงกระสุนจริง ควรสวมแว่นตานิรภัย
+> และห้ามหันหุ่นยนต์เข้าหาคนหรือสัตว์ ทดสอบด้วย `INFRARED (TEST)` ก่อนเสมอ
 
 ## ความสามารถ
 
-- ตรวจจับวงกลมสีแดงขนาดใหญ่ที่สุด แล้วเล็งและยิงหนึ่งครั้ง
-- ยิงตามลำดับ: วงกลมแดง → สี่เหลี่ยมเขียว → สี่เหลี่ยมเหลือง
-- หน้าเว็บ Debug สำหรับดูภาพกล้อง, mask สี และสาเหตุที่เป้าไม่ผ่านเกณฑ์ โดยไม่มีการสั่งกิมบอลหรือยิง
-- กรองเป้าด้วยพื้นที่ ความกลม สัดส่วน และจำนวนมุม เพื่อลดการตรวจจับผิด
+- ตรวจจับวงกลมสีแดง สี่เหลี่ยมสีเขียว และสี่เหลี่ยมสีเหลือง
+- ยิงตามลำดับ: แดง → เขียว → เหลือง
+- GUI แบบ Real-time พร้อมภาพกล้อง, Color mask, สถานะ Lock และผล HIT/MISS
+- เลือก `INFRARED (TEST)` หรือ `GEL BULLET` บน GUI ได้
+- กรอง Error และจำกัดความเร่งเพื่อให้ Gimbal เคลื่อนที่นุ่มขึ้น
+- มีสถานะ `REACQUIRING` เมื่อเป้าหายชั่วคราวระหว่าง Gimbal เคลื่อนที่
+- ยิงเมื่อเป้าอยู่ในรัศมีกลางภาพและ Gimbal นิ่งต่อเนื่องครบจำนวนเฟรม
+- ใช้ Detector กลางชุดเดียวกันทั้ง Debug, GUI และโปรแกรมยิง
+- บันทึกข้อมูลรายเฟรม ผลการยิง Configuration สรุปผล และกราฟ
 
-## ไฟล์หลัก
+## เป้าหมายที่รองรับ
+
+| ลำดับ | เป้าหมาย | วิธีตรวจจับ |
+| ---: | --- | --- |
+| 1 | วงกลมสีแดง | HSV สีแดง 2 ช่วง + Circularity + Aspect ratio + จำนวนมุม |
+| 2 | สี่เหลี่ยมสีเขียว | HSV + พื้นที่ + 4 มุม + Convex contour |
+| 3 | สี่เหลี่ยมสีเหลือง | HSV + พื้นที่ + 4 มุม + Convex contour |
+
+Mask สีใช้ `Morphological Close` และ `Open` ด้วย Kernel ขนาด `3×3`
+เพื่อลดจุดรบกวนและเชื่อมช่องว่างขนาดเล็ก
+
+## โครงสร้างไฟล์
 
 | ไฟล์ | หน้าที่ |
 | --- | --- |
-| `Red_Target_Simple.py` | เล็งวงกลมสีแดงแล้วสั่งยิงหนึ่งครั้ง |
-| `Color_Shape_Sequence.py` | ยิงเป้า 3 ชนิดตามลำดับ: แดง, เขียว, เหลือง |
-| `Red_Target_Debug.py` | ตรวจสอบการหาเป้าวงกลมแดงผ่านเว็บ โดยไม่ควบคุมหุ่นยนต์ |
-| `Color_Shape_Debug.py` | ตรวจสอบเป้าทั้ง 3 ชนิดผ่านเว็บ โดยไม่ควบคุมหุ่นยนต์ |
+| `Color_Shape_GUI.py` | GUI หลัก เล็ง ยิง และเก็บข้อมูลการทดลอง |
+| `Color_Shape_GUI_IR.py` | ทางลัดสำหรับเปิด GUI ในโหมด Infrared |
+| `Color_Shape_Sequence.py` | เล็งและยิงเป้าทั้ง 3 ชนิดตามลำดับ |
+| `Color_Shape_Debug.py` | Debug เป้าทั้ง 3 ชนิดผ่านเว็บ โดยไม่หมุนและไม่ยิง |
+| `Red_Target_Simple.py` | ตรวจจับ เล็ง และยิงวงกลมสีแดงหนึ่งครั้ง |
+| `Red_Target_Debug.py` | Debug วงกลมสีแดงผ่านเว็บ โดยไม่หมุนและไม่ยิง |
+| `requirements.txt` | รายการ Python packages |
 
 ## ความต้องการ
 
 - Python 3.9 ขึ้นไป
-- RoboMaster EP ที่เชื่อมต่อ Wi-Fi ในโหมด AP
-- แพ็กเกจ `robomaster`, `opencv-python-headless`, และ `numpy`
+- RoboMaster EP
+- คอมพิวเตอร์ที่เชื่อมต่อ Wi-Fi ของ RoboMaster EP ในโหมด AP
+- กล้องและ Gimbal ของ RoboMaster ทำงานตามปกติ
 
-ติดตั้งใน virtual environment:
+## การติดตั้ง
+
+### Windows PowerShell
+
+```powershell
+git clone https://github.com/YABYABuwu/ColorLockOnLAB.git
+cd ColorLockOnLAB
+
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+### Linux / macOS
 
 ```bash
+git clone https://github.com/YABYABuwu/ColorLockOnLAB.git
+cd ColorLockOnLAB
+
 python3 -m venv .venv
 . .venv/bin/activate
-pip install robomaster opencv-python-headless numpy
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
 ## การใช้งาน
 
-เชื่อมต่อคอมพิวเตอร์กับ Wi-Fi ของ RoboMaster EP ก่อน แล้วรันคำสั่งที่ต้องการ
+### 1. ตรวจสอบ Detection โดยไม่ยิง
 
-```bash
-# หา เล็ง และยิงวงกลมสีแดงหนึ่งครั้ง
-.venv/bin/python Red_Target_Simple.py
+เชื่อมต่อ Wi-Fi ของ RoboMaster EP แล้วรัน:
 
-# ยิงตามลำดับ: วงกลมแดง → สี่เหลี่ยมเขียว → สี่เหลี่ยมเหลือง
-.venv/bin/python Color_Shape_Sequence.py
-
-# เปิดหน้าตรวจสอบวงกลมสีแดง (ไม่หมุนกิมบอล/ไม่ยิง)
-.venv/bin/python Red_Target_Debug.py
-
-# เปิดหน้าตรวจสอบเป้าทั้งสามชนิด (ไม่หมุนกิมบอล/ไม่ยิง)
-.venv/bin/python Color_Shape_Debug.py
+```powershell
+.\.venv\Scripts\python.exe .\Color_Shape_Debug.py
 ```
 
-สคริปต์ Debug จะแสดง URL เช่น `http://127.0.0.1:xxxxx/` ในเทอร์มินัล ให้เปิด URL นั้นในเบราว์เซอร์เพื่อดูผลแบบเรียลไทม์
+เปิด URL ที่แสดงใน Terminal หน้า Debug จะแสดง:
 
-กด `Ctrl+C` เพื่อหยุดทุกสคริปต์อย่างปลอดภัย
+- ภาพกล้องและกรอบ Contour
+- Color mask
+- พื้นที่ (`A`), Circularity (`C`), Aspect ratio (`R`) และจำนวนมุม (`N`)
+- กรอบเขียวเมื่อผ่าน และกรอบส้มเมื่อไม่ผ่าน
 
-## การปรับค่าการตรวจจับและการเล็ง
+### 2. เปิด GUI
 
-ค่าหลักอยู่ใน `Red_Target_Simple.py`:
+```powershell
+.\.venv\Scripts\python.exe .\Color_Shape_GUI.py
+```
 
-- `KP` — ความเร็วในการหมุนตามเป้า
-- `MAX_SPEED` — ความเร็วสูงสุดของกิมบอล
-- `DEAD_ZONE` — ระยะคลาดเคลื่อนจากกึ่งกลางภาพที่ยอมรับได้
-- `MIN_AREA` — ขนาดเป้าขั้นต่ำ (พิกเซล)
-- `MIN_CIRCULARITY`, `MIN_ASPECT_RATIO` — เกณฑ์คัดเลือกวงกลมสีแดง
-- `LOCK_FRAMES` — จำนวนเฟรมต่อเนื่องที่เป้าต้องอยู่กลางภาพก่อนยิง
+ขั้นตอนการทดลอง:
 
-ช่วงสี HSV ของสี่เหลี่ยมเขียวและเหลืองอยู่ใน `COLOR_RANGES` ของ `Color_Shape_Sequence.py` ปรับช่วงนี้หากสภาพแสงหรือสีของเป้าเปลี่ยนไป
+1. เปิด `SETTINGS` แล้วกรอก Experiment ID, ระยะเป้า, สภาพแสง และหมายเหตุ
+2. เลือก `FIRE MODE`
+3. ตรวจสอบพื้นที่ด้านหน้าหุ่นยนต์
+4. กด `START SEQUENCE`
+5. ยืนยันโหมดยิงในกล่องข้อความ
+6. กด `EMERGENCY STOP` ได้ตลอดเวลาหากพบความผิดปกติ
+
+GUI เริ่มต้นด้วยโหมด `INFRARED (TEST)` และไม่เชื่อมต่อหรือยิงจนกว่าจะกด
+`START SEQUENCE` และยืนยันอีกครั้ง
+
+### 3. รันแบบไม่มี GUI
+
+```powershell
+# ยิงเป้าทั้งสามตามลำดับด้วยกระสุนเจล
+.\.venv\Scripts\python.exe .\Color_Shape_Sequence.py
+
+# ตรวจจับและยิงวงกลมแดงหนึ่งครั้ง
+.\.venv\Scripts\python.exe .\Red_Target_Simple.py
+```
+
+## โหมดยิง
+
+| โหมด | ค่าใน RoboMaster SDK | รายละเอียด |
+| --- | --- | --- |
+| `INFRARED (TEST)` | `blaster.INFRARED_FIRE` / `"ir"` | ทดสอบระบบโดยไม่ใช้กระสุนเจล |
+| `GEL BULLET` | `blaster.WATER_FIRE` / `"water"` | ยิงกระสุนเจลจริง |
+
+SDK ไม่รองรับการปรับกำลังยิง รองรับเฉพาะชนิดการยิงและจำนวนครั้ง
+
+## การตรวจจับและการเล็ง
+
+```text
+Camera frame
+    → HSV color mask
+    → Morphological Close 3×3
+    → Morphological Open 3×3
+    → Contour and shape validation
+    → Smooth Gimbal controller
+    → Center and settle verification
+    → Fire
+```
+
+ระบบใช้:
+
+- Exponential Moving Average สำหรับลดการสั่นของตำแหน่งเป้า
+- Slew-rate limit สำหรับจำกัดการเปลี่ยนความเร็วของ Gimbal
+- รัศมี Lock `1.5%` รอบจุดเล็ง
+- Lock ต่อเนื่อง `10` เฟรมก่อนยิง
+- `REACQUIRING` สูงสุด `8` เฟรมเมื่อเป้าหายชั่วคราว
+- จุดเล็งแนวตั้งประมาณ `35%` จากขอบบนของเป้า
+- Offset เป้าสีแดงไปทางซ้าย `4.5%` ของความกว้างเป้า
+
+Marker บน GUI แสดงจุดที่ Controller ใช้เล็งจริง
+
+## ค่าที่ปรับได้
+
+ค่าหลักอยู่ใน `Red_Target_Simple.py` และ `Color_Shape_Sequence.py`
+
+| ตัวแปร | ค่าเริ่มต้น | หน้าที่ |
+| --- | ---: | --- |
+| `KP` | `150` | Gain ของ P Controller |
+| `MAX_SPEED` | `40` | ความเร็ว Gimbal สูงสุด (องศา/วินาที) |
+| `DEAD_ZONE` | `0.015` | รัศมี Lock รอบจุดเล็ง |
+| `LOCK_FRAMES` | `10` | จำนวนเฟรมที่ต้อง Lock ต่อเนื่อง |
+| `ERROR_SMOOTHING_ALPHA` | `0.25` | ความไวของตัวกรอง Error |
+| `MAX_ACCELERATION` | `120.0` | อัตราการเปลี่ยนความเร็วสูงสุด |
+| `SETTLE_SPEED` | `0.75` | ความเร็วสูงสุดที่ถือว่านิ่ง |
+| `LOST_TARGET_GRACE_FRAMES` | `8` | ระยะรอ Reacquire เป้า |
+| `AIM_HEIGHT_RATIO` | `0.35` | ตำแหน่งเล็งจากขอบบนของเป้า |
+| `RED_AIM_X_OFFSET_RATIO` | `-0.045` | Offset แนวนอนของเป้าแดง |
+| `MIN_AREA` | `800` | พื้นที่ Contour ขั้นต่ำ |
+
+ช่วงสีใน `Color_Shape_Sequence.py`:
+
+```python
+COLOR_RANGES = {
+    "yellow": ((20, 100, 70), (35, 255, 255)),
+    "green": ((36, 80, 20), (95, 255, 255)),
+}
+```
+
+ควรปรับ HSV ใหม่เมื่อสภาพแสง กล้อง หรือวัสดุเป้าเปลี่ยนไป
+
+## ข้อมูลการทดลอง
+
+แต่ละรอบจะสร้างโฟลเดอร์:
+
+```text
+experiment_logs/<timestamp>_<experiment_id>/
+```
+
+| ไฟล์ | ข้อมูล |
+| --- | --- |
+| `frames.csv` | Detection, จุดเล็ง, Error, Gimbal speed, Lock, Target loss และ FPS |
+| `shots.csv` | เวลา Detection/Aiming, จำนวนเฟรม, ผลคำสั่งยิง และ HIT/MISS |
+| `config.json` | HSV, Controller, โหมดยิง และเงื่อนไขการทดลอง |
+| `summary.json` | เวลาเฉลี่ย, Detection rate และ Hit rate |
+| `session_plots.png` | กราฟ Aiming error, Gimbal speed และเวลาเล็ง |
+
+ไฟล์ Log และวิดีโอทดสอบไม่ถูก Commit เข้า Repository ตาม `.gitignore`
 
 ## ความปลอดภัย
 
-- ทดสอบด้วย `*_Debug.py` และยืนยันกรอบตรวจจับให้ถูกต้องก่อนใช้สคริปต์ที่ยิง
-- จัดพื้นที่ทดสอบให้ปลอดภัย ห้ามเล็งไปที่คน สัตว์ หรือสิ่งของที่ไม่ควรถูกยิง
-- วางหุ่นยนต์อย่างมั่นคง และเตรียมกด `Ctrl+C` เพื่อหยุดเมื่อพบพฤติกรรมผิดปกติ
-- สคริปต์ลำดับเป้าจะรอเมื่อไม่พบเป้า และจะไม่กวาดค้นหาด้วยตัวเอง
+- เริ่มทดสอบด้วย `Color_Shape_Debug.py` และ `INFRARED (TEST)`
+- สวมแว่นตานิรภัยเมื่อใช้ `GEL BULLET`
+- ห้ามเล็งไปที่ใบหน้า คน สัตว์ หรือสิ่งของที่เสียหายได้
+- ใช้กระสุนเจลที่เตรียมตามคู่มือ RoboMaster EP
+- ตรวจสอบเป้า Magazine และพื้นที่ด้านหน้าหุ่นก่อนเริ่ม
+- ใช้ `EMERGENCY STOP` หรือ `Ctrl+C` เมื่อพบพฤติกรรมผิดปกติ
 
-## หมายเหตุ
+## การแก้ปัญหาเบื้องต้น
 
-โค้ดนี้ใช้การเชื่อมต่อ `conn_type="ap"` และสั่งยิงแบบอินฟราเรดในสคริปต์ลำดับเป้า (`FIRE_TYPE = "ir"`). ตรวจสอบการตั้งค่าหุ่นยนต์และสภาพแวดล้อมก่อนใช้งานจริงเสมอ
+### ไม่พบเป้า
+
+- ตรวจ Color mask ใน `Color_Shape_Debug.py`
+- ตรวจช่วง HSV และสภาพแสง
+- ตรวจว่า Contour มีพื้นที่มากกว่า `MIN_AREA`
+- ตรวจจำนวนมุมและรูปทรงของเป้า
+
+### Gimbal เคลื่อนที่เลยเป้า
+
+- ลด `KP`, `MAX_SPEED` หรือ `MAX_ACCELERATION`
+- ลด `ERROR_SMOOTHING_ALPHA` เพื่อให้นุ่มขึ้น แต่ระบบจะตอบสนองช้าลง
+
+### ยิงคลาดตำแหน่ง
+
+- ปรับ `AIM_HEIGHT_RATIO`
+- ปรับ `RED_AIM_X_OFFSET_RATIO` สำหรับเป้าสีแดง
+- ทดสอบระยะและสภาพแสงเดิมทุกครั้ง เพราะ Parallax เปลี่ยนตามระยะ
+
+## License
+
+โปรเจกต์นี้จัดทำเพื่อการศึกษาและการทดลองกับ RoboMaster EP

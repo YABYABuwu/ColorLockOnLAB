@@ -12,7 +12,7 @@ import time
 
 import cv2
 from robomaster import robot
-from Color_Shape_Sequence import TARGETS, find_rectangle, find_red_target
+from Color_Shape_Sequence import TARGETS, detect_target
 from Red_Target_Debug import draw_debug
 
 
@@ -99,8 +99,7 @@ def make_debug_images(frame):
     """สร้างภาพครบสามสีจากเฟรมเดียวกัน ใช้เกณฑ์เดียวกับโปรแกรมยิง"""
     images, summaries = {}, []
     for name, color in TARGETS:
-        detection = (find_red_target(frame, debug=True) if color == "red"
-                     else find_rectangle(frame, color, debug=True))
+        detection = detect_target(frame, color, debug=True)
         image, target = draw_debug(frame, detection)
         ok, jpeg = cv2.imencode(".jpg", image)
         if not ok:
